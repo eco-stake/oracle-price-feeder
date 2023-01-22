@@ -4,61 +4,61 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"testing"
-
 	"price-feeder/oracle/types"
+	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
 
-func TestHuobiProvider_GetTickerPrices(t *testing.T) {
-	p, err := NewHuobiProvider(
+func TestPoloniexProvider_GetTickerPrices(t *testing.T) {
+	p, err := NewPoloniexProvider(
 		context.TODO(),
 		zerolog.Nop(),
 		Endpoint{},
-		types.CurrencyPair{Base: "ATOM", Quote: "USDT"},
+		testAtomUsdtCurrencyPair,
 	)
 	require.NoError(t, err)
 
 	t.Run("valid_request_single_ticker", func(t *testing.T) {
-		tickerMap := map[string]HuobiTicker{}
-		tickerMap["market.atomusdt.trade.detail"] = HuobiTicker{
-			Price:  testAtomPriceFloat64,
-			Volume: testAtomVolumeFloat64,
+		tickers := map[string]PoloniexTicker{}
+		tickers["ATOM_USDT"] = PoloniexTicker{
+			Price:  testAtomPriceString,
+			Volume: testAtomVolumeString,
 		}
 
-		p.tickers = tickerMap
+		p.tickers = tickers
 
 		prices, err := p.GetTickerPrices(testAtomUsdtCurrencyPair)
+
 		require.NoError(t, err)
 		require.Len(t, prices, 1)
 		require.Equal(
 			t,
-			sdk.MustNewDecFromStr(fmt.Sprintf("%f", testAtomPriceFloat64)),
+			sdk.MustNewDecFromStr(testAtomPriceString),
 			prices["ATOMUSDT"].Price,
 		)
 		require.Equal(
 			t,
-			sdk.MustNewDecFromStr(fmt.Sprintf("%f", testAtomVolumeFloat64)),
+			sdk.MustNewDecFromStr(testAtomVolumeString),
 			prices["ATOMUSDT"].Volume,
 		)
 	})
 
 	t.Run("valid_request_multi_ticker", func(t *testing.T) {
-		tickerMap := map[string]HuobiTicker{}
-		tickerMap["market.atomusdt.trade.detail"] = HuobiTicker{
-			Price:  testAtomPriceFloat64,
-			Volume: testAtomVolumeFloat64,
+		tickers := map[string]PoloniexTicker{}
+		tickers["ATOM_USDT"] = PoloniexTicker{
+			Price:  testAtomPriceString,
+			Volume: testAtomVolumeString,
+		}
+		tickers["BTC_USDT"] = PoloniexTicker{
+			Price:  testBtcPriceString,
+			Volume: testBtcVolumeString,
 		}
 
-		tickerMap["market.btcusdt.trade.detail"] = HuobiTicker{
-			Price:  testBtcPriceFloat64,
-			Volume: testBtcVolumeFloat64,
-		}
+		p.tickers = tickers
 
-		p.tickers = tickerMap
 		prices, err := p.GetTickerPrices(
 			testAtomUsdtCurrencyPair,
 			testBtcUsdtCurrencyPair,
@@ -68,12 +68,12 @@ func TestHuobiProvider_GetTickerPrices(t *testing.T) {
 		require.Len(t, prices, 2)
 		require.Equal(
 			t,
-			sdk.MustNewDecFromStr(fmt.Sprintf("%f", testBtcPriceFloat64)),
+			sdk.MustNewDecFromStr(testBtcPriceString),
 			prices["BTCUSDT"].Price,
 		)
 		require.Equal(
 			t,
-			sdk.MustNewDecFromStr(fmt.Sprintf("%f", testBtcVolumeFloat64)),
+			sdk.MustNewDecFromStr(testBtcVolumeString),
 			prices["BTCUSDT"].Volume,
 		)
 		require.Equal(
@@ -90,24 +90,26 @@ func TestHuobiProvider_GetTickerPrices(t *testing.T) {
 
 	t.Run("invalid_request_invalid_ticker", func(t *testing.T) {
 		prices, err := p.GetTickerPrices(types.CurrencyPair{Base: "FOO", Quote: "BAR"})
-		require.EqualError(t, err, "huobi failed to get ticker price for FOOBAR")
+		require.EqualError(t, err, "poloniex failed to get ticker price for FOO_BAR")
 		require.Nil(t, prices)
 	})
 }
 
-func TestHuobiProvider_GetSubscriptionMsgs(t *testing.T) {
-	provider := &HuobiProvider{
+func TestPoloniexProvider_GetSubscriptionMsgs(t *testing.T) {
+	provider := &PoloniexProvider{
 		subscribedPairs: map[string]types.CurrencyPair{},
 	}
 	cps := []types.CurrencyPair{
-		testAtomUsdtCurrencyPair,
 		testBtcUsdtCurrencyPair,
+		testAtomUsdtCurrencyPair,
 	}
-	subMsgs := provider.GetSubscriptionMsgs(cps...)
 
-	msg, _ := json.Marshal(subMsgs[0])
-	require.Equal(t, `{"sub":"market.atomusdt.trade.detail"}`, string(msg))
+	msgs := provider.GetSubscriptionMsgs(cps...)
 
-	msg, _ = json.Marshal(subMsgs[1])
-	require.Equal(t, `{"sub":"market.btcusdt.trade.detail"}`, string(msg))
+	msg, _ := json.Marshal(msgs[0])
+	require.Equal(
+		t,
+		`{"event":"subscribe","channel":["ticker"],"symbols":["BTC_USDT","ATOM_USDT"]}`,
+		string(msg),
+	)
 }

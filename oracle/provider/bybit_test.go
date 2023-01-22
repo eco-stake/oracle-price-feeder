@@ -3,21 +3,19 @@ package provider
 import (
 	"context"
 	"encoding/json"
-	"testing"
-
 	"price-feeder/oracle/types"
+	"testing"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
 
-func TestBinanceProvider_GetTickerPrices(t *testing.T) {
-	p, err := NewBinanceProvider(
+func TestBybitProvider_GetTickerPrices(t *testing.T) {
+	p, err := NewBybitProvider(
 		context.TODO(),
 		zerolog.Nop(),
 		Endpoint{},
-		false,
 		types.CurrencyPair{Base: "ATOM", Quote: "USDT"},
 	)
 	require.NoError(t, err)
@@ -26,11 +24,15 @@ func TestBinanceProvider_GetTickerPrices(t *testing.T) {
 		lastPrice := "34.69000000"
 		volume := "2396974.02000000"
 
-		tickerMap := map[string]BinanceTicker{}
-		tickerMap["ATOMUSDT"] = BinanceTicker{
-			Symbol:    "ATOMUSDT",
-			LastPrice: lastPrice,
-			Volume:    volume,
+		tickerMap := map[string]BybitTicker{}
+		tickerMap["tickers.ATOMUSDT"] = BybitTicker{
+			Topic: "tickers.ATOMUSDT",
+			Data: BybitTickerData{
+				Price:  lastPrice,
+				Volume: volume,
+				Symbol: "ATOMUSDT",
+				Time:   16729462890000,
+			},
 		}
 
 		p.tickers = tickerMap
@@ -43,21 +45,29 @@ func TestBinanceProvider_GetTickerPrices(t *testing.T) {
 	})
 
 	t.Run("valid_request_multi_ticker", func(t *testing.T) {
-		lastPriceAtom := "34.69000000"
-		lastPriceLuna := "41.35000000"
-		volume := "2396974.02000000"
+		lastPriceAtom := "12.345"
+		lastPriceLuna := "6.7890"
+		volume := "12345678.9"
 
-		tickerMap := map[string]BinanceTicker{}
-		tickerMap["ATOMUSDT"] = BinanceTicker{
-			Symbol:    "ATOMUSDT",
-			LastPrice: lastPriceAtom,
-			Volume:    volume,
+		tickerMap := map[string]BybitTicker{}
+		tickerMap["tickers.ATOMUSDT"] = BybitTicker{
+			Topic: "tickers.ATOMUSDT",
+			Data: BybitTickerData{
+				Price:  lastPriceAtom,
+				Volume: volume,
+				Symbol: "ATOMUSDT",
+				Time:   16729462890000,
+			},
 		}
 
-		tickerMap["LUNAUSDT"] = BinanceTicker{
-			Symbol:    "LUNAUSDT",
-			LastPrice: lastPriceLuna,
-			Volume:    volume,
+		tickerMap["tickers.LUNAUSDT"] = BybitTicker{
+			Topic: "tickers.LUNAUSDT",
+			Data: BybitTickerData{
+				Price:  lastPriceLuna,
+				Volume: volume,
+				Symbol: "LUNAUSDT",
+				Time:   16729462890000,
+			},
 		}
 
 		p.tickers = tickerMap
@@ -75,21 +85,21 @@ func TestBinanceProvider_GetTickerPrices(t *testing.T) {
 
 	t.Run("invalid_request_invalid_ticker", func(t *testing.T) {
 		prices, err := p.GetTickerPrices(types.CurrencyPair{Base: "FOO", Quote: "BAR"})
-		require.EqualError(t, err, "binance failed to get ticker price for FOOBAR")
+		require.Error(t, err)
+		require.Equal(t, "bybit failed to get ticker price for FOOBAR", err.Error())
 		require.Nil(t, prices)
 	})
 }
 
-func TestBinanceProvider_GetSubscriptionMsgs(t *testing.T) {
-	provider := &BinanceProvider{
+func TestBybitProvider_GetSubscriptionMsgs(t *testing.T) {
+	provider := &BybitProvider{
 		subscribedPairs: map[string]types.CurrencyPair{},
 	}
 	cps := []types.CurrencyPair{
 		{Base: "ATOM", Quote: "USDT"},
 	}
-
 	subMsgs := provider.GetSubscriptionMsgs(cps...)
 
 	msg, _ := json.Marshal(subMsgs[0])
-	require.Equal(t, "{\"method\":\"SUBSCRIBE\",\"params\":[\"atomusdt@ticker\",\"atomusdt@kline_1m\"],\"id\":1}", string(msg))
+	require.Equal(t, "{\"op\":\"subscribe\",\"args\":[\"tickers.ATOMUSDT\"]}", string(msg))
 }

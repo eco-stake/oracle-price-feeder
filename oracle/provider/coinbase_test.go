@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"testing"
 
+	"price-feeder/oracle/types"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
-	"price-feeder/oracle/types"
 )
 
 func TestCoinbaseProvider_GetTickerPrices(t *testing.T) {
@@ -24,8 +25,8 @@ func TestCoinbaseProvider_GetTickerPrices(t *testing.T) {
 		lastPrice := "34.69000000"
 		volume := "2396974.02000000"
 
-		tickerMap := map[string]CoinbaseTicker{}
-		tickerMap["ATOM-USDT"] = CoinbaseTicker{
+		tickerMap := map[string]CoinbaseWsTickerMsg{}
+		tickerMap["ATOM-USDT"] = CoinbaseWsTickerMsg{
 			Price:  lastPrice,
 			Volume: volume,
 		}
@@ -44,13 +45,13 @@ func TestCoinbaseProvider_GetTickerPrices(t *testing.T) {
 		lastPriceUmee := "41.35000000"
 		volume := "2396974.02000000"
 
-		tickerMap := map[string]CoinbaseTicker{}
-		tickerMap["ATOM-USDT"] = CoinbaseTicker{
+		tickerMap := map[string]CoinbaseWsTickerMsg{}
+		tickerMap["ATOM-USDT"] = CoinbaseWsTickerMsg{
 			Price:  lastPriceAtom,
 			Volume: volume,
 		}
 
-		tickerMap["UMEE-USDT"] = CoinbaseTicker{
+		tickerMap["UMEE-USDT"] = CoinbaseWsTickerMsg{
 			Price:  lastPriceUmee,
 			Volume: volume,
 		}
@@ -75,26 +76,14 @@ func TestCoinbaseProvider_GetTickerPrices(t *testing.T) {
 	})
 }
 
-func TestCoinbasePairToCurrencyPair(t *testing.T) {
-	cp := types.CurrencyPair{Base: "ATOM", Quote: "USDT"}
-	currencyPairSymbol := coinbasePairToCurrencyPair("ATOM-USDT")
-	require.Equal(t, cp.String(), currencyPairSymbol)
-}
-
-func TestCurrencyPairToCoinbasePair(t *testing.T) {
-	cp := types.CurrencyPair{Base: "ATOM", Quote: "USDT"}
-	coinbaseSymbol := currencyPairToCoinbasePair(cp)
-	require.Equal(t, coinbaseSymbol, "ATOM-USDT")
-}
-
-func TestCoinbaseProvider_getSubscriptionMsgs(t *testing.T) {
+func TestCoinbaseProvider_GetSubscriptionMsgs(t *testing.T) {
 	provider := &CoinbaseProvider{
 		subscribedPairs: map[string]types.CurrencyPair{},
 	}
 	cps := []types.CurrencyPair{
 		{Base: "ATOM", Quote: "USDT"},
 	}
-	subMsgs := provider.getSubscriptionMsgs(cps...)
+	subMsgs := provider.GetSubscriptionMsgs(cps...)
 
 	msg, _ := json.Marshal(subMsgs[0])
 	require.Equal(t, "{\"type\":\"subscribe\",\"product_ids\":[\"ATOM-USDT\"],\"channels\":[\"matches\",\"ticker\"]}", string(msg))

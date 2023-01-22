@@ -3,58 +3,56 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"price-feeder/oracle/types"
 	"testing"
 
-	"price-feeder/oracle/types"
-
-	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 )
 
-func TestOkxProvider_GetTickerPrices(t *testing.T) {
-	p, err := NewOkxProvider(
+func TestPhemexProvider_GetTickerPrices(t *testing.T) {
+	p, err := NewPhemexProvider(
 		context.TODO(),
 		zerolog.Nop(),
 		Endpoint{},
-		testBtcUsdtCurrencyPair,
+		testAtomUsdtCurrencyPair,
 	)
 	require.NoError(t, err)
 
 	t.Run("valid_request_single_ticker", func(t *testing.T) {
-		tickers := map[string]OkxTicker{}
-		tickers["ATOM-USDT"] = OkxTicker{
-			Price:  testAtomPriceString,
-			Volume: testAtomVolumeString,
+		tickers := map[string]PhemexTicker{}
+		tickers["sATOMUSDT"] = PhemexTicker{
+			Price:  testAtomPriceInt64,
+			Volume: testAtomVolumeInt64,
 		}
 
 		p.tickers = tickers
 
 		prices, err := p.GetTickerPrices(testAtomUsdtCurrencyPair)
+
 		require.NoError(t, err)
 		require.Len(t, prices, 1)
 		require.Equal(
 			t,
-			sdk.MustNewDecFromStr(testAtomPriceString),
+			testAtomPriceDec,
 			prices["ATOMUSDT"].Price,
 		)
 		require.Equal(
 			t,
-			sdk.MustNewDecFromStr(testAtomVolumeString),
+			testAtomVolumeDec,
 			prices["ATOMUSDT"].Volume,
 		)
 	})
 
 	t.Run("valid_request_multi_ticker", func(t *testing.T) {
-		tickers := map[string]OkxTicker{}
-		tickers["ATOM-USDT"] = OkxTicker{
-			Price:  testAtomPriceString,
-			Volume: testAtomVolumeString,
+		tickers := map[string]PhemexTicker{}
+		tickers["sATOMUSDT"] = PhemexTicker{
+			Price:  testAtomPriceInt64,
+			Volume: testAtomVolumeInt64,
 		}
-
-		tickers["BTC-USDT"] = OkxTicker{
-			Price:  testBtcPriceString,
-			Volume: testBtcVolumeString,
+		tickers["sBTCUSDT"] = PhemexTicker{
+			Price:  testBtcPriceInt64,
+			Volume: testBtcVolumeInt64,
 		}
 
 		p.tickers = tickers
@@ -90,21 +88,26 @@ func TestOkxProvider_GetTickerPrices(t *testing.T) {
 
 	t.Run("invalid_request_invalid_ticker", func(t *testing.T) {
 		prices, err := p.GetTickerPrices(types.CurrencyPair{Base: "FOO", Quote: "BAR"})
-		require.EqualError(t, err, "okx failed to get ticker price for FOO-BAR")
+		require.EqualError(t, err, "phemex failed to get ticker price for sFOOBAR")
 		require.Nil(t, prices)
 	})
 }
 
-func TestOkxProvider_GetSubscriptionMsgs(t *testing.T) {
-	provider := &OkxProvider{
+func TestPhemexProvider_GetSubscriptionMsgs(t *testing.T) {
+	provider := &PhemexProvider{
 		subscribedPairs: map[string]types.CurrencyPair{},
 	}
 	cps := []types.CurrencyPair{
 		testBtcUsdtCurrencyPair,
 		testAtomUsdtCurrencyPair,
 	}
-	subMsgs := provider.GetSubscriptionMsgs(cps...)
 
-	msg, _ := json.Marshal(subMsgs[0])
-	require.Equal(t, `{"op":"subscribe","args":[{"channel":"candle3m","instId":"BTC-USDT"},{"channel":"candle3m","instId":"ATOM-USDT"}]}`, string(msg))
+	msgs := provider.GetSubscriptionMsgs(cps...)
+
+	msg, _ := json.Marshal(msgs[0])
+	require.Equal(
+		t,
+		`{"id":1,"method":"spot_market24h.subscribe","params":[]}`,
+		string(msg),
+	)
 }
