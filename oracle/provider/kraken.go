@@ -11,12 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"price-feeder/config"
-	"price-feeder/oracle/types"
-
-	"github.com/cosmos/cosmos-sdk/telemetry"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog"
+	"price-feeder/oracle/types"
 )
 
 const (
@@ -28,6 +25,11 @@ const (
 )
 
 var _ Provider = (*KrakenProvider)(nil)
+var krakenSymbolTranslations map[string]string = map[string]string{
+	"BTC": "XBT",
+	"LUNA": "LUNA2",
+	"LUNC": "LUNA",
+}
 
 type (
 	// KrakenProvider defines an Oracle provider implemented by the Kraken public
@@ -35,12 +37,11 @@ type (
 	//
 	// REF: https://docs.kraken.com/websockets/#overview
 	KrakenProvider struct {
-		wsURL           url.URL
-		wsClient        *websocket.Conn
+		wsc             *WebsocketController
 		logger          zerolog.Logger
 		mtx             sync.RWMutex
-		endpoints       config.ProviderEndpoint
-		tickers         map[string]TickerPrice        // Symbol => TickerPrice
+		endpoints       Endpoint
+		tickers         map[string]types.TickerPrice  // Symbol => TickerPrice
 		candles         map[string][]KrakenCandle     // Symbol => KrakenCandle
 		subscribedPairs map[string]types.CurrencyPair // Symbol => types.CurrencyPair
 	}
@@ -78,11 +79,6 @@ type (
 		Event string `json:"event"` // events from kraken ex.: systemStatus | subscriptionStatus
 	}
 
-	// KrakenEventSystemStatus parse the systemStatus event message.
-	KrakenEventSystemStatus struct {
-		Status string `json:"status"` // online|maintenance|cancel_only|limit_only|post_only
-	}
-
 	// KrakenEventSubscriptionStatus parse the subscriptionStatus event message.
 	KrakenEventSubscriptionStatus struct {
 		Status       string `json:"status"`       // subscribed|unsubscribed|error
@@ -105,12 +101,12 @@ type (
 func NewKrakenProvider(
 	ctx context.Context,
 	logger zerolog.Logger,
-	endpoints config.ProviderEndpoint,
+	endpoints Endpoint,
 	pairs ...types.CurrencyPair,
 ) (*KrakenProvider, error) {
-	if endpoints.Name != config.ProviderKraken {
-		endpoints = config.ProviderEndpoint{
-			Name:      config.ProviderKraken,
+	if endpoints.Name != ProviderKraken {
+		endpoints = Endpoint{
+			Name:      ProviderKraken,
 			Rest:      KrakenRestHost,
 			Websocket: krakenWSHost,
 		}
@@ -121,42 +117,76 @@ func NewKrakenProvider(
 		Host:   endpoints.Websocket,
 	}
 
-	wsConn, _, err := websocket.DefaultDialer.Dial(wsURL.String(), nil)
-	if err != nil {
-		return nil, fmt.Errorf("error connecting to websocket: %w", err)
-	}
+	krakenLogger := logger.With().Str("provider", string(ProviderKraken)).Logger()
 
 	provider := &KrakenProvider{
-		wsURL:           wsURL,
-		wsClient:        wsConn,
-		logger:          logger.With().Str("provider", "kraken").Logger(),
+		logger:          krakenLogger,
 		endpoints:       endpoints,
-		tickers:         map[string]TickerPrice{},
+		tickers:         map[string]types.TickerPrice{},
 		candles:         map[string][]KrakenCandle{},
 		subscribedPairs: map[string]types.CurrencyPair{},
 	}
 
-	if err := provider.SubscribeCurrencyPairs(pairs...); err != nil {
-		return nil, err
-	}
+	provider.setSubscribedPairs(pairs...)
 
-	go provider.handleWebSocketMsgs(ctx)
+	provider.wsc = NewWebsocketController(
+		ctx,
+		ProviderKraken,
+		wsURL,
+		provider.getSubscriptionMsgs(pairs...),
+		provider.messageReceived,
+		time.Duration(0),
+		websocket.PingMessage,
+		krakenLogger,
+	)
+	go provider.wsc.Start()
 
 	return provider, nil
 }
 
+func (p *KrakenProvider) getSubscriptionMsgs(cps ...types.CurrencyPair) []interface{} {
+	subscriptionMsgs := make([]interface{}, 0, len(cps)*2)
+	for _, cp := range cps {
+		krakenPair := currencyPairToKrakenPair(cp)
+		subscriptionMsgs = append(subscriptionMsgs, newKrakenTickerSubscriptionMsg(krakenPair))
+		subscriptionMsgs = append(subscriptionMsgs, newKrakenCandleSubscriptionMsg(krakenPair))
+	}
+	return subscriptionMsgs
+}
+
+// SubscribeCurrencyPairs sends the new subscription messages to the websocket
+// and adds them to the providers subscribedPairs array
+func (p *KrakenProvider) SubscribeCurrencyPairs(cps ...types.CurrencyPair) error {
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+
+	newPairs := []types.CurrencyPair{}
+	for _, cp := range cps {
+		if _, ok := p.subscribedPairs[cp.String()]; !ok {
+			newPairs = append(newPairs, cp)
+		}
+	}
+
+	newSubscriptionMsgs := p.getSubscriptionMsgs(newPairs...)
+	if err := p.wsc.AddSubscriptionMsgs(newSubscriptionMsgs); err != nil {
+		return err
+	}
+	p.setSubscribedPairs(newPairs...)
+	return nil
+}
+
 // GetTickerPrices returns the tickerPrices based on the saved map.
-func (p *KrakenProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]TickerPrice, error) {
+func (p *KrakenProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]types.TickerPrice, error) {
 	p.mtx.RLock()
 	defer p.mtx.RUnlock()
 
-	tickerPrices := make(map[string]TickerPrice, len(pairs))
+	tickerPrices := make(map[string]types.TickerPrice, len(pairs))
 
 	for _, cp := range pairs {
 		key := cp.String()
 		tickerPrice, ok := p.tickers[key]
 		if !ok {
-			return nil, fmt.Errorf("failed to get ticker price for %s", key)
+			return nil, fmt.Errorf("kraken failed to get ticker price for %s", key)
 		}
 		tickerPrices[key] = tickerPrice
 	}
@@ -165,8 +195,8 @@ func (p *KrakenProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[strin
 }
 
 // GetCandlePrices returns the candlePrices based on the saved map.
-func (p *KrakenProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string][]CandlePrice, error) {
-	candlePrices := make(map[string][]CandlePrice, len(pairs))
+func (p *KrakenProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string][]types.CandlePrice, error) {
+	candlePrices := make(map[string][]types.CandlePrice, len(pairs))
 
 	for _, cp := range pairs {
 		key := cp.String()
@@ -180,54 +210,9 @@ func (p *KrakenProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[strin
 	return candlePrices, nil
 }
 
-// SubscribeCurrencyPairs subscribe all currency pairs into ticker and candle channels.
-func (p *KrakenProvider) SubscribeCurrencyPairs(cps ...types.CurrencyPair) error {
-	if len(cps) == 0 {
-		return fmt.Errorf("currency pairs is empty")
-	}
-
-	if err := p.subscribeChannels(cps...); err != nil {
-		return err
-	}
-
-	p.setSubscribedPairs(cps...)
-	telemetry.IncrCounter(
-		float32(len(cps)),
-		"websocket",
-		"subscribe",
-		"currency_pairs",
-		"provider",
-		config.ProviderKraken,
-	)
-	return nil
-}
-
-// subscribeChannels subscribe all currency pairs into ticker and candle channels.
-func (p *KrakenProvider) subscribeChannels(cps ...types.CurrencyPair) error {
-	pairs := make([]string, len(cps))
-
-	for i, cp := range cps {
-		pairs[i] = currencyPairToKrakenPair(cp)
-	}
-
-	if err := p.subscribeTickers(pairs...); err != nil {
-		return err
-	}
-
-	return p.subscribeCandles(pairs...)
-}
-
-// subscribedPairsToSlice returns the map of subscribed pairs as slice
-func (p *KrakenProvider) subscribedPairsToSlice() []types.CurrencyPair {
-	p.mtx.RLock()
-	defer p.mtx.RUnlock()
-
-	return types.MapPairsToSlice(p.subscribedPairs)
-}
-
-func (candle KrakenCandle) toCandlePrice() (CandlePrice, error) {
-	return newCandlePrice(
-		"Kraken",
+func (candle KrakenCandle) toCandlePrice() (types.CandlePrice, error) {
+	return types.NewCandlePrice(
+		string(ProviderKraken),
 		candle.Symbol,
 		candle.Close,
 		candle.Volume,
@@ -235,67 +220,24 @@ func (candle KrakenCandle) toCandlePrice() (CandlePrice, error) {
 	)
 }
 
-func (p *KrakenProvider) getCandlePrices(key string) ([]CandlePrice, error) {
+func (p *KrakenProvider) getCandlePrices(key string) ([]types.CandlePrice, error) {
 	p.mtx.RLock()
 	defer p.mtx.RUnlock()
 
 	candles, ok := p.candles[key]
 	if !ok {
-		return []CandlePrice{}, fmt.Errorf("failed to get candle prices for %s", key)
+		return []types.CandlePrice{}, fmt.Errorf("kraken failed to get candle prices for %s", key)
 	}
 
-	candleList := []CandlePrice{}
+	candleList := []types.CandlePrice{}
 	for _, candle := range candles {
 		cp, err := candle.toCandlePrice()
 		if err != nil {
-			return []CandlePrice{}, err
+			return []types.CandlePrice{}, err
 		}
 		candleList = append(candleList, cp)
 	}
 	return candleList, nil
-}
-
-// handleWebSocketMsgs receive all the messages from the provider and controls the
-// reconnect function to the web socket.
-func (p *KrakenProvider) handleWebSocketMsgs(ctx context.Context) {
-	reconnectTicker := time.NewTicker(defaultMaxConnectionTime)
-	defer reconnectTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(defaultReadNewWSMessage):
-			messageType, bz, err := p.wsClient.ReadMessage()
-			if err != nil {
-				if websocket.IsCloseError(err, websocket.CloseAbnormalClosure) {
-					p.logger.Err(err).Msg("WebSocket closed unexpectedly")
-					p.keepReconnecting()
-					continue
-				}
-
-				// if some error occurs continue to try to read the next message.
-				p.logger.Err(err).Msg("could not read message")
-				if err := p.ping(); err != nil {
-					p.logger.Err(err).Msg("failed to send ping")
-					p.keepReconnecting()
-				}
-				continue
-			}
-
-			if len(bz) == 0 {
-				continue
-			}
-
-			p.messageReceived(messageType, bz)
-
-		case <-reconnectTicker.C:
-			if err := p.reconnect(); err != nil {
-				p.logger.Err(err).Msg("attempted to reconnect")
-				p.keepReconnecting()
-			}
-		}
-	}
 }
 
 // messageReceived handles any message sent by the provider.
@@ -315,7 +257,6 @@ func (p *KrakenProvider) messageReceived(messageType int, bz []byte) {
 	if krakenErr == nil {
 		switch krakenEvent.Event {
 		case krakenEventSystemStatus:
-			p.messageReceivedSystemStatus(bz)
 			return
 		case krakenEventSubscriptionStatus:
 			p.messageReceivedSubscriptionStatus(bz)
@@ -377,26 +318,14 @@ func (p *KrakenProvider) messageReceivedTickerPrice(bz []byte) error {
 		p.logger.Debug().Msg("received an unexpected pair")
 		return err
 	}
-
-	krakenPair = normalizeKrakenBTCPair(krakenPair)
-	currencyPairSymbol := krakenPairToCurrencyPairSymbol(krakenPair)
-
-	tickerPrice, err := krakenTicker.toTickerPrice(currencyPairSymbol)
+	currencyPair := krakenPairToCurrencyPair(krakenPair)
+	tickerPrice, err := krakenTicker.toTickerPrice(currencyPair.String())
 	if err != nil {
 		p.logger.Err(err).Msg("could not parse kraken ticker to ticker price")
 		return err
 	}
-
-	p.setTickerPair(currencyPairSymbol, tickerPrice)
-	telemetry.IncrCounter(
-		1,
-		"websocket",
-		"message",
-		"type",
-		"ticker",
-		"provider",
-		config.ProviderKraken,
-	)
+	p.setTickerPair(currencyPair.String(), tickerPrice)
+	telemetryWebsocketMessage(ProviderKraken, MessageTypeTicker)
 	return nil
 }
 
@@ -467,65 +396,10 @@ func (p *KrakenProvider) messageReceivedCandle(bz []byte) error {
 	if !ok {
 		return fmt.Errorf("received an unexpected pair")
 	}
-
-	krakenPair = normalizeKrakenBTCPair(krakenPair)
-	currencyPairSymbol := krakenPairToCurrencyPairSymbol(krakenPair)
-	krakenCandle.Symbol = currencyPairSymbol
-
-	telemetry.IncrCounter(
-		1,
-		"websocket",
-		"message",
-		"type",
-		"candle",
-		"provider",
-		config.ProviderKraken,
-	)
+	krakenCandle.Symbol = krakenPair
+	telemetryWebsocketMessage(ProviderKraken, MessageTypeCandle)
 	p.setCandlePair(krakenCandle)
 	return nil
-}
-
-// reconnect closes the last WS connection and create a new one.
-func (p *KrakenProvider) reconnect() error {
-	p.wsClient.Close()
-	p.logger.Debug().Msg("trying to reconnect")
-
-	wsConn, _, err := websocket.DefaultDialer.Dial(p.wsURL.String(), nil)
-	if err != nil {
-		return fmt.Errorf("error connecting to Kraken websocket: %w", err)
-	}
-	p.wsClient = wsConn
-
-	currencyPairs := p.subscribedPairsToSlice()
-
-	telemetry.IncrCounter(
-		1,
-		"websocket",
-		"reconnect",
-		"provider",
-		config.ProviderKraken,
-	)
-	return p.subscribeChannels(currencyPairs...)
-}
-
-// keepReconnecting keeps trying to reconnect if an error occurs in recconnect.
-func (p *KrakenProvider) keepReconnecting() {
-	reconnectTicker := time.NewTicker(defaultReconnectTime)
-	defer reconnectTicker.Stop()
-	connectionTries := 1
-
-	for time := range reconnectTicker.C {
-		if err := p.reconnect(); err != nil {
-			p.logger.Err(err).Msgf("attempted to reconnect %d times at %s", connectionTries, time.String())
-			connectionTries++
-			continue
-		}
-
-		if connectionTries > maxReconnectionTries {
-			p.logger.Warn().Msgf("failed to reconnect %d times", connectionTries)
-		}
-		return
-	}
 }
 
 // messageReceivedSubscriptionStatus handle the subscription status message
@@ -540,33 +414,17 @@ func (p *KrakenProvider) messageReceivedSubscriptionStatus(bz []byte) {
 	switch subscriptionStatus.Status {
 	case "error":
 		p.logger.Error().Msg(subscriptionStatus.ErrorMessage)
-		p.removeSubscribedTickers(krakenPairToCurrencyPairSymbol(subscriptionStatus.Pair))
+		p.removeSubscribedTickers(krakenPairToCurrencyPair(subscriptionStatus.Pair).String())
 		return
 	case "unsubscribed":
 		p.logger.Debug().Msgf("ticker %s was unsubscribed", subscriptionStatus.Pair)
-		p.removeSubscribedTickers(krakenPairToCurrencyPairSymbol(subscriptionStatus.Pair))
+		p.removeSubscribedTickers(krakenPairToCurrencyPair(subscriptionStatus.Pair).String())
 		return
 	}
-}
-
-// messageReceivedSystemStatus handle the system status and try to reconnect if it
-// is not online.
-func (p *KrakenProvider) messageReceivedSystemStatus(bz []byte) {
-	var systemStatus KrakenEventSystemStatus
-	if err := json.Unmarshal(bz, &systemStatus); err != nil {
-		p.logger.Err(err).Msg("could not unmarshal event system status")
-		return
-	}
-
-	if strings.EqualFold(systemStatus.Status, "online") {
-		return
-	}
-
-	p.keepReconnecting()
 }
 
 // setTickerPair sets an ticker to the map thread safe by the mutex.
-func (p *KrakenProvider) setTickerPair(symbol string, ticker TickerPrice) {
+func (p *KrakenProvider) setTickerPair(symbol string, ticker types.TickerPrice) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 	p.tickers[symbol] = ticker
@@ -576,41 +434,21 @@ func (p *KrakenProvider) setCandlePair(candle KrakenCandle) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 	// convert kraken timestamp seconds -> milliseconds
-	candle.TimeStamp *= int64(time.Second / time.Millisecond)
+	candle.TimeStamp = SecondsToMilli(candle.TimeStamp)
 	staleTime := PastUnixTime(providerCandlePeriod)
 	candleList := []KrakenCandle{}
-
 	candleList = append(candleList, candle)
 	for _, c := range p.candles[candle.Symbol] {
 		if staleTime < c.TimeStamp {
 			candleList = append(candleList, c)
 		}
 	}
-	p.candles[candle.Symbol] = candleList
-}
-
-// ping to check websocket connection.
-func (p *KrakenProvider) ping() error {
-	return p.wsClient.WriteMessage(websocket.PingMessage, ping)
-}
-
-// subscribeTickers write the subscription msg to the provider.
-func (p *KrakenProvider) subscribeTickers(pairs ...string) error {
-	subsMsg := newKrakenTickerSubscriptionMsg(pairs...)
-	return p.wsClient.WriteJSON(subsMsg)
-}
-
-// subscribeCandles write the subscription msg to the provider.
-func (p *KrakenProvider) subscribeCandles(pairs ...string) error {
-	subsMsg := newKrakenCandleSubscriptionMsg(pairs...)
-	return p.wsClient.WriteJSON(subsMsg)
+	pair := krakenPairToCurrencyPair(candle.Symbol)
+	p.candles[pair.String()] = candleList
 }
 
 // setSubscribedPairs sets N currency pairs to the map of subscribed pairs.
 func (p *KrakenProvider) setSubscribedPairs(cps ...types.CurrencyPair) {
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
-
 	for _, cp := range cps {
 		p.subscribedPairs[cp.String()] = cp
 	}
@@ -641,15 +479,7 @@ func (p *KrakenProvider) GetAvailablePairs() (map[string]struct{}, error) {
 
 	availablePairs := make(map[string]struct{}, len(pairsSummary.Result))
 	for _, pair := range pairsSummary.Result {
-		splitPair := strings.Split(pair.WsName, "/")
-		if len(splitPair) != 2 {
-			continue
-		}
-
-		cp := types.CurrencyPair{
-			Base:  strings.ToUpper(splitPair[0]),
-			Quote: strings.ToUpper(splitPair[1]),
-		}
+		cp := krakenPairToCurrencyPair(pair.WsName)
 		availablePairs[cp.String()] = struct{}{}
 	}
 
@@ -657,13 +487,13 @@ func (p *KrakenProvider) GetAvailablePairs() (map[string]struct{}, error) {
 }
 
 // toTickerPrice return a TickerPrice based on the KrakenTicker.
-func (ticker KrakenTicker) toTickerPrice(symbol string) (TickerPrice, error) {
+func (ticker KrakenTicker) toTickerPrice(symbol string) (types.TickerPrice, error) {
 	if len(ticker.C) != 2 || len(ticker.V) != 2 {
-		return TickerPrice{}, fmt.Errorf("error converting KrakenTicker to TickerPrice")
+		return types.TickerPrice{}, fmt.Errorf("error converting KrakenTicker to TickerPrice")
 	}
 	// ticker.C has the Price in the first position.
 	// ticker.V has the totla	Value over last 24 hours in the second position.
-	return newTickerPrice("Kraken", symbol, ticker.C[0], ticker.V[1])
+	return types.NewTickerPrice(string(ProviderKraken), symbol, ticker.C[0], ticker.V[1])
 }
 
 // newKrakenTickerSubscriptionMsg returns a new subscription Msg.
@@ -688,20 +518,34 @@ func newKrakenCandleSubscriptionMsg(pairs ...string) KrakenSubscriptionMsg {
 	}
 }
 
-// krakenPairToCurrencyPairSymbol receives a kraken pair formated
-// ex.: ATOM/USDT and return currencyPair Symbol ATOMUSDT.
-func krakenPairToCurrencyPairSymbol(krakenPair string) string {
-	return strings.ReplaceAll(krakenPair, "/", "")
-}
-
-// currencyPairToKrakenPair receives a currency pair
-// and return kraken ticker symbol ATOM/USDT.
 func currencyPairToKrakenPair(cp types.CurrencyPair) string {
-	return strings.ToUpper(cp.Base + "/" + cp.Quote)
+	return currencySymbolToKrakenSymbol(cp.Base) + "/" + currencySymbolToKrakenSymbol(cp.Quote)
 }
 
-// normalizeKrakenBTCPair changes XBT pairs to BTC,
-// since other providers list bitcoin as BTC.
-func normalizeKrakenBTCPair(ticker string) string {
-	return strings.Replace(ticker, "XBT", "BTC", 1)
+func currencySymbolToKrakenSymbol(currencySymbol string) string {
+	translation, ok := krakenSymbolTranslations[currencySymbol]
+	if ok {
+		return translation
+	}
+	return currencySymbol
+}
+
+func krakenPairToCurrencyPair(krakenPair string) types.CurrencyPair {
+	krakenPairFields := strings.Split(krakenPair, "/")
+	if len(krakenPairFields) != 2 {
+		return types.CurrencyPair{}
+	}
+	return types.CurrencyPair{
+		Base: krakenSymbolToCurrencySymbol(krakenPairFields[0]),
+		Quote: krakenSymbolToCurrencySymbol(krakenPairFields[1]),
+	}
+}
+
+func krakenSymbolToCurrencySymbol(krakenSymbol string) string {
+	for symbol, translation := range krakenSymbolTranslations {
+		if translation == krakenSymbol {
+			return symbol
+		}
+	}
+	return krakenSymbol
 }

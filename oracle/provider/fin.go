@@ -8,10 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"price-feeder/config"
 	"price-feeder/oracle/types"
-
-	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
 const (
@@ -65,8 +62,8 @@ type (
 	}
 )
 
-func NewFinProvider(endpoint config.ProviderEndpoint) *FinProvider {
-	if endpoint.Name == config.ProviderFin {
+func NewFinProvider(endpoint Endpoint) *FinProvider {
+	if endpoint.Name == ProviderFin {
 		return &FinProvider{
 			baseURL: endpoint.Rest,
 			client:  newDefaultHTTPClient(),
@@ -78,7 +75,7 @@ func NewFinProvider(endpoint config.ProviderEndpoint) *FinProvider {
 	}
 }
 
-func (p FinProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]TickerPrice, error) {
+func (p FinProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]types.TickerPrice, error) {
 	path := fmt.Sprintf("%s%s", p.baseURL, finTickersEndpoint)
 	tickerResponse, err := p.client.Get(path)
 	if err != nil {
@@ -98,7 +95,7 @@ func (p FinProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]Ti
 	for _, pair := range pairs {
 		tickerSymbolPairs[pair.Base+"_"+pair.Quote] = pair
 	}
-	tickerPrices := make(map[string]TickerPrice, len(pairs))
+	tickerPrices := make(map[string]types.TickerPrice, len(pairs))
 	for _, ticker := range tickers.Tickers {
 		pair, ok := tickerSymbolPairs[strings.ToUpper(ticker.Symbol)]
 		if !ok {
@@ -109,15 +106,10 @@ func (p FinProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]Ti
 		if ok {
 			return nil, fmt.Errorf("FIN tickers response contained duplicate: %s", ticker.Symbol)
 		}
-		price := strToDec(ticker.Price)
-		if err != nil {
-			return nil, fmt.Errorf("FIN ticker price failed to parse for %s: %s", ticker.Symbol, ticker.Price)
+		tickerPrices[pair.String()] = types.TickerPrice{
+			Price: strToDec(ticker.Price), 
+			Volume: strToDec(ticker.Volume),
 		}
-		volume := strToDec(ticker.Volume)
-		if err != nil {
-			return nil, fmt.Errorf("FIN ticker volume failed to parse for %s: %s", ticker.Symbol, ticker.Volume)
-		}
-		tickerPrices[pair.String()] = TickerPrice{Price: price, Volume: volume}
 	}
 	for _, pair := range pairs {
 		_, ok := tickerPrices[pair.String()]
@@ -125,27 +117,21 @@ func (p FinProvider) GetTickerPrices(pairs ...types.CurrencyPair) (map[string]Ti
 			return nil, fmt.Errorf("FIN ticker price missing for pair: %s", pair.String())
 		}
 	}
-	fmt.Println("tickerPrices")
-	fmt.Println(tickerPrices)
-
 	return tickerPrices, nil
 }
 
-func (p FinProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string][]CandlePrice, error) {
+func (p FinProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string][]types.CandlePrice, error) {
 	pairAddresses, err := p.getFinPairAddresses()
 	if err != nil {
 		return nil, fmt.Errorf("FIN pair addresses lookup failed: %w", err)
 	}
-	candlePricesPairs := make(map[string][]CandlePrice)
+	candlePricesPairs := make(map[string][]types.CandlePrice)
 	for _, pair := range pairs {
 		address, ok := pairAddresses[pair.String()]
 		if !ok {
 			return nil, fmt.Errorf("FIN contract address lookup failed for pair: %s", pair.String())
 		}
-		_, ok = candlePricesPairs[pair.Base]
-		if !ok {
-			candlePricesPairs[pair.String()] = []CandlePrice{}
-		}
+		candlePricesPairs[pair.String()] = []types.CandlePrice{}
 		windowEndTime := time.Now()
 		windowStartTime := windowEndTime.Add(-finCandleWindowSizeHours * time.Hour)
 		path := fmt.Sprintf("%s%s?contract=%s&precision=%d&from=%s&to=%s",
@@ -170,13 +156,13 @@ func (p FinProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string][]
 		if err != nil {
 			return nil, fmt.Errorf("FIN candles response unmarshal failed: %w", err)
 		}
-		candlePrices := []CandlePrice{}
+		candlePrices := []types.CandlePrice{}
 		for _, candle := range candles.Candles {
 			timeStamp, err := binToTimeStamp(candle.Bin)
 			if err != nil {
 				return nil, fmt.Errorf("FIN candle timestamp failed to parse: %s", candle.Bin)
 			}
-			candlePrices = append(candlePrices, CandlePrice{
+			candlePrices = append(candlePrices, types.CandlePrice{
 				Price:     strToDec(candle.Close),
 				Volume:    strToDec(candle.Volume),
 				TimeStamp: timeStamp,
@@ -184,8 +170,6 @@ func (p FinProvider) GetCandlePrices(pairs ...types.CurrencyPair) (map[string][]
 		}
 		candlePricesPairs[pair.String()] = candlePrices
 	}
-	fmt.Println("candlePricesPairs")
-	fmt.Println(candlePricesPairs)
 	return candlePricesPairs, nil
 }
 
@@ -235,17 +219,6 @@ func (p FinProvider) getFinPairAddresses() (map[string]string, error) {
 // SubscribeCurrencyPairs performs a no-op since fin does not use websockets
 func (p FinProvider) SubscribeCurrencyPairs(pairs ...types.CurrencyPair) error {
 	return nil
-}
-
-func strToDec(str string) sdk.Dec {
-	if strings.Contains(str, ".") {
-		split := strings.Split(str, ".")
-		if len(split[1]) > 18 {
-			// sdk.MustNewDecFromStr will panic if decimal precision is greater than 18
-			str = split[0] + "." + split[1][0:18]
-		}
-	}
-	return sdk.MustNewDecFromStr(str)
 }
 
 func binToTimeStamp(bin string) (int64, error) {

@@ -5,19 +5,17 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"price-feeder/config"
-	"price-feeder/oracle/types"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/stretchr/testify/require"
+	"price-feeder/oracle/types"
 )
 
 func TestOsmosisProvider_GetTickerPrices(t *testing.T) {
-	p := NewOsmosisProvider(config.ProviderEndpoint{})
+	p := NewOsmosisProvider(Endpoint{})
 
 	t.Run("valid_request_single_ticker", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			require.Equal(t, "/tokens/v1/all", req.URL.String())
+			require.Equal(t, "/tokens/v2/all", req.URL.String())
 			resp := `[
 				{
 					"price": 100.22,
@@ -53,7 +51,7 @@ func TestOsmosisProvider_GetTickerPrices(t *testing.T) {
 
 	t.Run("valid_request_multi_ticker", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			require.Equal(t, "/tokens/v1/all", req.URL.String())
+			require.Equal(t, "/tokens/v2/all", req.URL.String())
 			resp := `[
 				{
 					"price": 100.22,
@@ -94,7 +92,7 @@ func TestOsmosisProvider_GetTickerPrices(t *testing.T) {
 
 	t.Run("invalid_request_bad_response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			require.Equal(t, "/tokens/v1/all", req.URL.String())
+			require.Equal(t, "/tokens/v2/all", req.URL.String())
 			rw.Write([]byte(`FOO`))
 		}))
 		defer server.Close()
@@ -109,7 +107,7 @@ func TestOsmosisProvider_GetTickerPrices(t *testing.T) {
 
 	t.Run("invalid_request_invalid_ticker", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-			require.Equal(t, "/tokens/v1/all", req.URL.String())
+			require.Equal(t, "/tokens/v2/all", req.URL.String())
 			resp := `[
 				{
 					"price": 100.22,
@@ -158,7 +156,7 @@ func TestOsmosisProvider_GetTickerPrices(t *testing.T) {
 }
 
 func TestOsmosisProvider_GetAvailablePairs(t *testing.T) {
-	p := NewOsmosisProvider(config.ProviderEndpoint{})
+	p := NewOsmosisProvider(Endpoint{})
 	p.GetAvailablePairs()
 
 	t.Run("valid_available_pair", func(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"price-feeder/config"
+	"price-feeder/oracle/provider"
 
 	"github.com/stretchr/testify/require"
 )
@@ -19,12 +20,13 @@ func TestValidate(t *testing.T) {
 				AllowedOrigins: []string{},
 			},
 			CurrencyPairs: []config.CurrencyPair{
-				{Base: "ATOM", Quote: "USDT", Providers: []string{"kraken"}},
+				{Base: "ATOM", Quote: "USDT", Providers: []provider.Name{provider.ProviderKraken}},
 			},
 			Account: config.Account{
 				Address:   "fromaddr",
 				Validator: "valaddr",
 				ChainID:   "chain-id",
+				Prefix: "chain",
 			},
 			Keyring: config.Keyring{
 				Backend: "test",
@@ -45,6 +47,10 @@ func TestValidate(t *testing.T) {
 				PrometheusRetentionTime: 120,
 			},
 			GasAdjustment: 1.5,
+			GasPrices: "0.00125ukuji",
+			Healthchecks: []config.Healthchecks{
+				{URL: "https://hc-ping.com/HEALTHCHECK-UUID", Timeout: "200ms"},
+			},
 		}
 	}
 	emptyPairs := validConfig()
@@ -52,28 +58,28 @@ func TestValidate(t *testing.T) {
 
 	invalidBase := validConfig()
 	invalidBase.CurrencyPairs = []config.CurrencyPair{
-		{Base: "", Quote: "USDT", Providers: []string{"kraken"}},
+		{Base: "", Quote: "USDT", Providers: []provider.Name{provider.ProviderKraken}},
 	}
 
 	invalidQuote := validConfig()
 	invalidQuote.CurrencyPairs = []config.CurrencyPair{
-		{Base: "ATOM", Quote: "", Providers: []string{"kraken"}},
+		{Base: "ATOM", Quote: "", Providers: []provider.Name{provider.ProviderKraken}},
 	}
 
 	emptyProviders := validConfig()
 	emptyProviders.CurrencyPairs = []config.CurrencyPair{
-		{Base: "ATOM", Quote: "USDT", Providers: []string{}},
+		{Base: "ATOM", Quote: "USDT", Providers: []provider.Name{}},
 	}
 
 	invalidEndpoints := validConfig()
-	invalidEndpoints.ProviderEndpoints = []config.ProviderEndpoint{
+	invalidEndpoints.ProviderEndpoints = []provider.Endpoint{
 		{
-			Name: "binance",
+			Name: provider.ProviderBinance,
 		},
 	}
 
 	invalidEndpointsProvider := validConfig()
-	invalidEndpointsProvider.ProviderEndpoints = []config.ProviderEndpoint{
+	invalidEndpointsProvider.ProviderEndpoints = []provider.Endpoint{
 		{
 			Name:      "foo",
 			Rest:      "bar",
@@ -137,6 +143,7 @@ func TestParseConfig_Valid(t *testing.T) {
 
 	content := []byte(`
 gas_adjustment = 1.5
+gas_prices = "0.00125ukuji"
 
 [server]
 listen_addr = "0.0.0.0:99999"
@@ -154,7 +161,7 @@ providers = [
 ]
 
 [[currency_pairs]]
-base = "UMEE"
+base = "KUJI"
 quote = "USDT"
 providers = [
 	"kraken",
@@ -172,13 +179,14 @@ providers = [
 ]
 
 [account]
-address = "umee15nejfgcaanqpw25ru4arvfd0fwy6j8clccvwx4"
-validator = "umeevalcons14rjlkfzp56733j5l5nfk6fphjxymgf8mj04d5p"
-chain_id = "umee-local-testnet"
+address = "kujira15nejfgcaanqpw25ru4arvfd0fwy6j8clccvwx4"
+validator = "kujiravalcons14rjlkfzp56733j5l5nfk6fphjxymgf8mj04d5p"
+chain_id = "kujira-local-testnet"
+prefix = "kujira"
 
 [keyring]
 backend = "test"
-dir = "/Users/username/.umee"
+dir = "/Users/username/.kujira"
 pass = "keyringPassword"
 
 [rpc]
@@ -193,7 +201,11 @@ enable_hostname = true
 enable_hostname_label = true
 enable_service_label = true
 prometheus_retention = 120
-global_labels = [["chain-id", "umee-local-testnet"]]
+global_labels = [["chain-id", "kujira-local-testnet"]]
+
+[[healthchecks]]
+url = "https://hc-ping.com/HEALTHCHECK-UUID"
+timeout = "200ms"
 `)
 	_, err = tmpFile.Write(content)
 	require.NoError(t, err)
@@ -209,8 +221,8 @@ global_labels = [["chain-id", "umee-local-testnet"]]
 	require.Equal(t, "ATOM", cfg.CurrencyPairs[0].Base)
 	require.Equal(t, "USDT", cfg.CurrencyPairs[0].Quote)
 	require.Len(t, cfg.CurrencyPairs[0].Providers, 3)
-	require.Equal(t, "kraken", cfg.CurrencyPairs[0].Providers[0])
-	require.Equal(t, "binance", cfg.CurrencyPairs[0].Providers[1])
+	require.Equal(t, provider.ProviderKraken, cfg.CurrencyPairs[0].Providers[0])
+	require.Equal(t, provider.ProviderBinance, cfg.CurrencyPairs[0].Providers[1])
 }
 
 func TestParseConfig_Valid_NoTelemetry(t *testing.T) {
@@ -220,6 +232,7 @@ func TestParseConfig_Valid_NoTelemetry(t *testing.T) {
 
 	content := []byte(`
 gas_adjustment = 1.5
+gas_prices = "0.00125ukuji"
 
 [server]
 listen_addr = "0.0.0.0:99999"
@@ -237,7 +250,7 @@ providers = [
 ]
 
 [[currency_pairs]]
-base = "UMEE"
+base = "KUJI"
 quote = "USDT"
 providers = [
 	"kraken",
@@ -255,13 +268,14 @@ providers = [
 ]
 
 [account]
-address = "umee15nejfgcaanqpw25ru4arvfd0fwy6j8clccvwx4"
-validator = "umeevalcons14rjlkfzp56733j5l5nfk6fphjxymgf8mj04d5p"
-chain_id = "umee-local-testnet"
+address = "kujira15nejfgcaanqpw25ru4arvfd0fwy6j8clccvwx4"
+validator = "kujiravalcons14rjlkfzp56733j5l5nfk6fphjxymgf8mj04d5p"
+chain_id = "kujira-local-testnet"
+prefix = "kujira"
 
 [keyring]
 backend = "test"
-dir = "/Users/username/.umee"
+dir = "/Users/username/.kujira"
 pass = "keyringPassword"
 
 [rpc]
@@ -286,8 +300,8 @@ enabled = false
 	require.Equal(t, "ATOM", cfg.CurrencyPairs[0].Base)
 	require.Equal(t, "USDT", cfg.CurrencyPairs[0].Quote)
 	require.Len(t, cfg.CurrencyPairs[0].Providers, 3)
-	require.Equal(t, "kraken", cfg.CurrencyPairs[0].Providers[0])
-	require.Equal(t, "binance", cfg.CurrencyPairs[0].Providers[1])
+	require.Equal(t, provider.ProviderKraken, cfg.CurrencyPairs[0].Providers[0])
+	require.Equal(t, provider.ProviderBinance, cfg.CurrencyPairs[0].Providers[1])
 	require.Equal(t, cfg.Telemetry.Enabled, false)
 }
 
@@ -360,6 +374,7 @@ func TestParseConfig_Valid_Deviations(t *testing.T) {
 
 	content := []byte(`
 gas_adjustment = 1.5
+gas_prices = "0.00125ukuji"
 
 [server]
 listen_addr = "0.0.0.0:99999"
@@ -385,7 +400,7 @@ providers = [
 ]
 
 [[currency_pairs]]
-base = "UMEE"
+base = "KUJI"
 quote = "USDT"
 providers = [
 	"kraken",
@@ -403,13 +418,14 @@ providers = [
 ]
 
 [account]
-address = "umee15nejfgcaanqpw25ru4arvfd0fwy6j8clccvwx4"
-validator = "umeevalcons14rjlkfzp56733j5l5nfk6fphjxymgf8mj04d5p"
-chain_id = "umee-local-testnet"
+address = "kujira15nejfgcaanqpw25ru4arvfd0fwy6j8clccvwx4"
+validator = "kujiravalcons14rjlkfzp56733j5l5nfk6fphjxymgf8mj04d5p"
+chain_id = "kujira-local-testnet"
+prefix = "kujira"
 
 [keyring]
 backend = "test"
-dir = "/Users/username/.umee"
+dir = "/Users/username/.kujira"
 pass = "keyringPassword"
 
 [rpc]
@@ -424,7 +440,7 @@ enable_hostname = true
 enable_hostname_label = true
 enable_service_label = true
 prometheus_retention = 120
-global_labels = [["chain-id", "umee-local-testnet"]]
+global_labels = [["chain-id", "kujira-local-testnet"]]
 `)
 	_, err = tmpFile.Write(content)
 	require.NoError(t, err)
@@ -440,8 +456,8 @@ global_labels = [["chain-id", "umee-local-testnet"]]
 	require.Equal(t, "ATOM", cfg.CurrencyPairs[0].Base)
 	require.Equal(t, "USDT", cfg.CurrencyPairs[0].Quote)
 	require.Len(t, cfg.CurrencyPairs[0].Providers, 3)
-	require.Equal(t, "kraken", cfg.CurrencyPairs[0].Providers[0])
-	require.Equal(t, "binance", cfg.CurrencyPairs[0].Providers[1])
+	require.Equal(t, provider.ProviderKraken, cfg.CurrencyPairs[0].Providers[0])
+	require.Equal(t, provider.ProviderBinance, cfg.CurrencyPairs[0].Providers[1])
 	require.Equal(t, "2", cfg.Deviations[0].Threshold)
 	require.Equal(t, "USDT", cfg.Deviations[0].Base)
 	require.Equal(t, "1.5", cfg.Deviations[1].Threshold)
