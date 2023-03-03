@@ -13,15 +13,27 @@ This is a standalone version of [Umee's fantastic work](https://github.com/umee-
 
 The list of current supported providers:
 
-- [FIN](https://fin.kujira.app)
 - [Binance](https://www.binance.com/en)
-- [MEXC](https://www.mexc.com/)
+- [BinanceUS](https://www.binance.us)
+- [Bitfinex](https://www.bitfinex.com)
+- [Bitget](https://www.bitget.com/en/)
+- [BKEX](https://www.bkex.com/)
+- [Bybit](https://www.bybit.com/en-US/)
 - [Coinbase](https://www.coinbase.com/)
-- [Gate](https://www.gate.io/)
+- [Crypto.com](https://crypto.com/eea)
+- [FIN](https://fin.kujira.app)
+- [Gate.io](https://www.gate.io)
+- [HitBTC](https://hitbtc.com)
 - [Huobi](https://www.huobi.com/en-us/)
 - [Kraken](https://www.kraken.com/en-us/)
+- [Kucoin](https://www.kucoin.com)
+- [LBank](https://www.lbank.com)
+- [MEXC](https://www.mexc.com/)
 - [Okx](https://www.okx.com/)
 - [Osmosis](https://app.osmosis.zone/)
+- [Phemex](https://phemex.com)
+- [Poloniex](https://poloniex.com)
+- [XT.COM](https://www.xt.com/en)
 
 ## Usage
 
@@ -30,7 +42,7 @@ file defines what exchange rates to fetch and what providers to get them from.
 In addition, it defines the oracle's keyring and feeder account information.
 The keyring's password is defined via environment variables or user input.
 More information on the keyring can be found [here](#keyring)
-Please see the [example configuration](price-feeder.example.toml) for more details.
+Please see the [example configuration](config.example.toml) for more details.
 
 ```shell
 $ price-feeder /path/to/price_feeder_config.toml

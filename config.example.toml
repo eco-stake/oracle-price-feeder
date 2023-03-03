@@ -1,7 +1,9 @@
-gas_adjustment = 1.5
+gas_adjustment = 1.7
 gas_prices = "0.00125ukuji"
 enable_server = true
 enable_voter = true
+
+history_db = "/var/tmp/feeder.db"
 
 [server]
 listen_addr = "0.0.0.0:7171"
@@ -14,13 +16,19 @@ base = "USDT"
 threshold = "2"
 
 [[currency_pairs]]
-base = "ATOM"
-providers = [
-  "binance",
-  "kraken",
-  "osmosis",
-]
+base = "USDT"
 quote = "USD"
+providers = ["coinbase", "kraken", "crypto", "gate", "binanceus"]
+
+[[currency_pairs]]
+base = "BTC"
+quote = "USD"
+providers = ["coinbase", "kraken", "crypto"]
+
+[[currency_pairs]]
+base = "BTC"
+quote = "USDT"
+providers = ["binance", "mexc", "huobi"]
 
 [account]
 address = "kujira..."
