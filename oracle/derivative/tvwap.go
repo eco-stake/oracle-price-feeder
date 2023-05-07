@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	tvwapMaxTimeDeltaSeconds = int64(120)
+	tvwapMaxTimeDeltaSeconds      = int64(120)
 	tvwapMinHistoryPeriodFraction = 0.8
 )
 
@@ -30,41 +30,53 @@ func NewTvwapDerivative(
 ) (*TvwapDerivative, error) {
 	d := &TvwapDerivative{
 		derivative: derivative{
-			pairs: pairs,
+			pairs:   pairs,
 			history: history,
-			logger: logger,
+			logger:  logger,
 			periods: periods,
 		},
 	}
 	return d, nil
 }
 
-func (d *TvwapDerivative) GetPrices(pairs ...types.CurrencyPair) (map[string]sdk.Dec, error) {
-	prices := make(map[string]sdk.Dec, len(pairs))
+func (d *TvwapDerivative) GetPrice(pair types.CurrencyPair) (types.TickerPrice, error) {
 	now := time.Now()
-	for _, pair := range pairs {
-		period, ok := d.periods[pair.String()]
-		if !ok {
-			d.logger.Error().Str("pair", pair.String()).Msg("pair not configured")
-			return nil, fmt.Errorf("pair not configured")
-		}
-		start := now.Add(-period)
-		tickers, err := d.history.GetTickerPrices(pair, start, now)
-		if err != nil {
-			d.logger.Error().Err(err).Str("pair", pair.String()).Msg("failed to get historical tickers")
-			return nil, err
-		}
-		pairPrices, err := tvwap(tickers, start, now)
-		if err != nil {
-			d.logger.Warn().Err(err).Str("pair", pair.String()).Dur("period", period).Msg("failed to compute derivative price")
-		} else {
-			prices[pair.String()] = pairPrices
+	symbol := pair.String()
+
+	period, ok := d.periods[symbol]
+	if !ok {
+		d.logger.Error().Str("pair", symbol).Msg("pair not configured")
+		return types.TickerPrice{}, fmt.Errorf("pair not configured")
+	}
+	start := now.Add(-period)
+	tickers, err := d.history.GetTickerPrices(pair, start, now)
+	if err != nil {
+		d.logger.Error().Err(err).Str("pair", symbol).Msg("failed to get historical tickers")
+		return types.TickerPrice{}, err
+	}
+	pairPrice, err := Tvwap(tickers, start, now)
+	if err != nil || pairPrice.IsNil() || pairPrice.IsZero() {
+		d.logger.Warn().Err(err).Str("pair", symbol).Dur("period", period).Msg("failed to compute derivative price")
+		return types.TickerPrice{}, err
+	}
+
+	volume := sdk.ZeroDec()
+	for _, tps := range tickers {
+		for _, tp := range tps {
+			volume = volume.Add(tp.Volume)
 		}
 	}
-	return prices, nil
+
+	ticker := types.TickerPrice{
+		Price:  pairPrice,
+		Volume: volume,
+		Time:   now,
+	}
+
+	return ticker, nil
 }
 
-func tvwap(
+func Tvwap(
 	tickers map[string][]types.TickerPrice,
 	start time.Time,
 	end time.Time,

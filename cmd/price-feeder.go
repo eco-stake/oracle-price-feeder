@@ -24,10 +24,10 @@ import (
 	"price-feeder/config"
 	"price-feeder/oracle"
 	"price-feeder/oracle/client"
-	"price-feeder/oracle/provider"
-	"price-feeder/oracle/history"
-	"price-feeder/oracle/types"
 	"price-feeder/oracle/derivative"
+	"price-feeder/oracle/history"
+	"price-feeder/oracle/provider"
+	"price-feeder/oracle/types"
 	v1 "price-feeder/router/v1"
 
 	"github.com/cosmos/cosmos-sdk/telemetry"
@@ -62,6 +62,7 @@ func init() {
 	rootCmd.PersistentFlags().String(flagLogFormat, logLevelText, "logging format; must be either json or text")
 
 	rootCmd.AddCommand(getVersionCmd())
+	rootCmd.AddCommand(getBacktestCmd())
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -187,7 +188,7 @@ func priceFeederCmdHandler(cmd *cobra.Command, args []string) error {
 
 	derivativePairs := map[string][]types.CurrencyPair{}
 	derivativePeriods := map[string]map[string]time.Duration{}
-	derivativeDenoms := map[string]struct{}{}
+	derivativeSymbols := map[string]struct{}{}
 	providerPairs := []config.CurrencyPair{}
 	for _, pair := range cfg.CurrencyPairs {
 		if pair.Derivative != "" {
@@ -203,7 +204,7 @@ func priceFeederCmdHandler(cmd *cobra.Command, args []string) error {
 			currencyPair := types.CurrencyPair{Base: pair.Base, Quote: pair.Quote}
 			derivativePairs[pair.Derivative] = append(pairs, currencyPair)
 			derivativePeriods[pair.Derivative][currencyPair.String()] = period
-			derivativeDenoms[pair.Base] = struct{}{}
+			derivativeSymbols[pair.Base+pair.Quote] = struct{}{}
 		}
 		providerPairs = append(providerPairs, pair)
 	}
@@ -226,7 +227,7 @@ func priceFeederCmdHandler(cmd *cobra.Command, args []string) error {
 		endpoints,
 		derivatives,
 		derivativePairs,
-		derivativeDenoms,
+		derivativeSymbols,
 		cfg.Healthchecks,
 		history,
 	)

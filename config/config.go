@@ -60,6 +60,7 @@ var (
 		provider.ProviderBitget:    {},
 		provider.ProviderMexc:      {},
 		provider.ProviderCrypto:    {},
+		provider.ProviderCurve:     {},
 		provider.ProviderMock:      {},
 		provider.ProviderStride:    {},
 		provider.ProviderXt:        {},
@@ -72,20 +73,6 @@ var (
 	// maxDeviationThreshold is the maxmimum allowed amount of standard
 	// deviations which validators are able to set for a given asset.
 	maxDeviationThreshold = sdk.MustNewDecFromStr("3.0")
-
-	// SupportedQuotes defines a lookup table for which assets we support
-	// using as quotes.
-	SupportedQuotes = map[string]struct{}{
-		DenomUSD:  {},
-		"AXLUSDC": {},
-		"USDC":    {},
-		"USDT":    {},
-		"DAI":     {},
-		"BTC":     {},
-		"ETH":     {},
-		"ATOM":    {},
-		"OSMO":    {},
-	}
 )
 
 type (
@@ -197,7 +184,7 @@ type (
 
 	ProviderEndpoints struct {
 		Name          provider.Name `toml:"name" validate:"required"`
-		Rest          string        `toml:"rest"`
+		Urls          []string      `toml:"urls"`
 		Websocket     string        `toml:"websocket"`
 		WebsocketPath string        `toml:"websocket_path"`
 		PollInterval  string        `toml:"poll_interval"`
@@ -217,7 +204,7 @@ func telemetryValidation(sl validator.StructLevel) {
 func endpointValidation(sl validator.StructLevel) {
 	endpoint := sl.Current().Interface().(ProviderEndpoints)
 
-	if len(endpoint.Name) < 1 || (len(endpoint.Rest) < 1 && len(endpoint.Websocket) < 1) {
+	if len(endpoint.Name) < 1 || (len(endpoint.Urls) < 1 && len(endpoint.Websocket) < 1) {
 		sl.ReportError(endpoint, "endpoint", "Endpoint", "unsupportedEndpointType", "")
 	}
 	if _, ok := SupportedProviders[endpoint.Name]; !ok {
@@ -243,7 +230,7 @@ func (p ProviderEndpoints) ToEndpoint() (provider.Endpoint, error) {
 	}
 	e := provider.Endpoint{
 		Name:          p.Name,
-		Rest:          p.Rest,
+		Urls:          p.Urls,
 		Websocket:     p.Websocket,
 		WebsocketPath: p.WebsocketPath,
 		PollInterval:  pollInterval,
@@ -289,6 +276,7 @@ func ParseConfig(configPath string) (Config, error) {
 	}
 
 	derivativeDenoms := map[string]struct{}{}
+	derivativeBases := map[string]struct{}{}
 	pairs := make(map[string]map[provider.Name]struct{})
 	coinQuotes := make(map[string]struct{})
 	for i, cp := range cfg.CurrencyPairs {
@@ -299,7 +287,8 @@ func ParseConfig(configPath string) (Config, error) {
 			coinQuotes[cp.Quote] = struct{}{}
 		}
 		if cp.Derivative != "" {
-			derivativeDenoms[cp.Base] = struct{}{}
+			derivativeBases[cp.Base] = struct{}{}
+			derivativeDenoms[cp.Base+cp.Quote] = struct{}{}
 			_, ok := SupportedDerivatives[cp.Derivative]
 			if !ok {
 				return cfg, fmt.Errorf("unsupported derivative: %s", cp.Derivative)
@@ -317,10 +306,6 @@ func ParseConfig(configPath string) (Config, error) {
 			if ok {
 				return cfg, fmt.Errorf("cannot combine derivative and nonderivative pairs for %s", cp.Base)
 			}
-			_, ok = SupportedQuotes[cp.Quote]
-			if !ok {
-				return cfg, fmt.Errorf("unsupported quote: %s", cp.Quote)
-			}
 		}
 		for _, provider := range cp.Providers {
 			if _, ok := SupportedProviders[provider]; !ok {
@@ -330,22 +315,10 @@ func ParseConfig(configPath string) (Config, error) {
 		}
 	}
 
-	// Use coinQuotes to ensure that any quotes can be converted to USD.
-	for quote := range coinQuotes {
-		for index, pair := range cfg.CurrencyPairs {
-			if pair.Base == quote && pair.Quote == DenomUSD {
-				break
-			}
-			if index == len(cfg.CurrencyPairs)-1 {
-				return cfg, fmt.Errorf("all non-usd quotes require a conversion rate feed")
-			}
-		}
-	}
-
 	if !cfg.ProviderMinOverride {
 		for base, providers := range pairs {
 			_, isMock := pairs[base]["mock"]
-			_, isDerivative := derivativeDenoms[base]
+			_, isDerivative := derivativeBases[base]
 			if !isDerivative && !isMock && len(providers) < 3 {
 				return cfg, fmt.Errorf("must have at least three providers for %s", base)
 			}
