@@ -1,4 +1,4 @@
-FROM golang:1.18-buster AS build
+FROM golang:1.19-buster AS build
 
 ADD . /usr/lib/oracle-price-feeder
 WORKDIR /usr/lib/oracle-price-feeder
