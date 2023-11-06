@@ -498,6 +498,8 @@ func NewProvider(
 		return provider.NewOsmosisProvider(ctx, providerLogger, endpoint, providerPairs...)
 	case provider.ProviderOsmosisV2:
 		return provider.NewOsmosisV2Provider(ctx, providerLogger, endpoint, providerPairs...)
+	case provider.ProviderPancakeV3Bsc:
+		return provider.NewPancakeProvider(ctx, providerLogger, endpoint, providerPairs...)
 	case provider.ProviderPhemex:
 		return provider.NewPhemexProvider(ctx, providerLogger, endpoint, providerPairs...)
 	case provider.ProviderPoloniex:
@@ -525,7 +527,12 @@ func (o *Oracle) checkWhitelist(params oracletypes.Params) {
 }
 
 func (o *Oracle) tick(ctx context.Context) error {
-	o.logger.Debug().Msg("executing oracle tick")
+	o.logger.Info().Msg("executing oracle tick")
+
+	// Create and start all provider routines immediately
+	if len(o.priceProviders) == 0 {
+		o.SetPrices(ctx)
+	}
 
 	blockHeight, err := o.oracleClient.ChainHeight.GetChainHeight()
 	if err != nil {

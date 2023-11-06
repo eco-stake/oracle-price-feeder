@@ -39,7 +39,6 @@ var (
 		provider.ProviderBybit:              {},
 		provider.ProviderBitfinex:           {},
 		provider.ProviderBitforex:           {},
-		provider.ProviderBkex:               {},
 		provider.ProviderBitmart:            {},
 		provider.ProviderBitstamp:           {},
 		provider.ProviderCamelotV2:          {},
@@ -54,7 +53,6 @@ var (
 		provider.ProviderKucoin:             {},
 		provider.ProviderBinance:            {},
 		provider.ProviderBinanceUS:          {},
-		provider.ProviderOsmosis:            {},
 		provider.ProviderOsmosisV2:          {},
 		provider.ProviderOkx:                {},
 		provider.ProviderHuobi:              {},
@@ -74,6 +72,7 @@ var (
 		provider.ProviderAstroportNeutron:   {},
 		provider.ProviderAstroportTerra2:    {},
 		provider.ProviderAstroportInjective: {},
+		provider.ProviderPancakeV3Bsc:       {},
 	}
 
 	SupportedDerivatives = map[string]struct{}{

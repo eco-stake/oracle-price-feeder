@@ -36,6 +36,7 @@ const (
 	ProviderCamelotV3          Name = "camelotv3"
 	ProviderOsmosis            Name = "osmosis"
 	ProviderOsmosisV2          Name = "osmosisv2"
+	ProviderPancakeV3Bsc       Name = "pancakev3_bsc"
 	ProviderHuobi              Name = "huobi"
 	ProviderOkx                Name = "okx"
 	ProviderGate               Name = "gate"
@@ -134,6 +135,12 @@ func (p *provider) Init(
 	p.ctx = ctx
 	p.endpoints = endpoints
 	p.endpoints.SetDefaults()
+
+	// remove trailing slashes
+	for i, url := range p.endpoints.Urls {
+		p.endpoints.Urls[i] = strings.TrimRight(url, "/")
+	}
+
 	p.logger = logger.With().Str("provider", p.endpoints.Name.String()).Logger()
 	p.tickers = map[string]types.TickerPrice{}
 	p.http = newDefaultHTTPClient()
@@ -231,14 +238,24 @@ func (p *provider) httpPost(path string, body []byte) ([]byte, error) {
 func (p *provider) httpRequest(path string, method string, body []byte, headers map[string]string) ([]byte, error) {
 	res, err := p.makeHttpRequest(p.httpBase+path, method, body, headers)
 	if err != nil {
-		p.logger.Warn().
-			Str("endpoint", p.httpBase).
-			Str("path", path).
-			Msg("trying alternate http endpoints")
-		for _, endpoint := range p.endpoints.Urls {
-			if endpoint == p.httpBase {
-				continue
+		index := 0
+		urls := []string{}
+
+		for i, url := range p.endpoints.Urls {
+			if p.httpBase == url {
+				index = i
+				break
 			}
+		}
+
+		urls = append(urls, p.endpoints.Urls[index+1:]...)
+		urls = append(urls, p.endpoints.Urls[:index]...)
+
+		for _, endpoint := range urls {
+			p.logger.Warn().
+				Str("endpoint", endpoint).
+				Msg("trying alternate http endpoints")
+
 			res, err = p.makeHttpRequest(endpoint+path, method, body, headers)
 			if err == nil {
 				p.logger.Info().Str("endpoint", endpoint).Msg("selected alternate http endpoint")
@@ -350,6 +367,8 @@ func (e *Endpoint) SetDefaults() {
 		defaults = osmosisDefaultEndpoints
 	case ProviderOsmosisV2:
 		defaults = osmosisv2DefaultEndpoints
+	case ProviderPancakeV3Bsc:
+		defaults = PancakeV3BscDefaultEndpoints
 	case ProviderPhemex:
 		defaults = phemexDefaultEndpoints
 	case ProviderPoloniex:
@@ -471,10 +490,10 @@ func (p *provider) setPairs(
 }
 
 func (p *provider) setTickerPrice(symbol string, price sdk.Dec, volume sdk.Dec, timestamp time.Time) {
-	if price.IsZero() {
+	if price.IsNil() || price.LTE(sdk.ZeroDec()) {
 		p.logger.Warn().
 			Str("symbol", symbol).
-			Msg("price is zero")
+			Msgf("price is %s", price)
 		return
 	}
 
@@ -630,11 +649,16 @@ func strToDec(str string) sdk.Dec {
 			str = split[0] + "." + split[1][0:18]
 		}
 	}
-	return sdk.MustNewDecFromStr(str)
+	dec, err := sdk.NewDecFromStr(str)
+	if err != nil {
+		dec = sdk.Dec{}
+	}
+
+	return dec
 }
 
 func floatToDec(f float64) sdk.Dec {
-	return sdk.MustNewDecFromStr(strconv.FormatFloat(f, 'f', -1, 64))
+	return strToDec(strconv.FormatFloat(f, 'f', -1, 64))
 }
 
 func invertDec(d sdk.Dec) sdk.Dec {
