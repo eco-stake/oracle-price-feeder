@@ -6,3 +6,4 @@ config.toml
 .kujira
 .env
 *.db
+test.py
