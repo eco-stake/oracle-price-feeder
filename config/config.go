@@ -64,6 +64,7 @@ var (
 		provider.ProviderCurve:              {},
 		provider.ProviderMock:               {},
 		provider.ProviderStride:             {},
+		provider.ProviderShade:              {},
 		provider.ProviderXt:                 {},
 		provider.ProviderIdxOsmosis:         {},
 		provider.ProviderPyth:               {},
@@ -242,7 +243,7 @@ func endpointValidation(sl validator.StructLevel) {
 	}
 
 	if len(endpoint.Urls) < 1 && len(endpoint.UrlSet) < 1 {
-		sl.ReportError(endpoint, "urls", "Urls", "urls or url_set empty", "")
+		sl.ReportError(endpoint.Name, "urls", "Urls", "urls or url_set empty", "")
 	}
 
 	if _, ok := SupportedProviders[endpoint.Name]; !ok {
