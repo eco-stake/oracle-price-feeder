@@ -36,51 +36,54 @@ var (
 	// SupportedProviders defines a lookup table of all the supported currency API
 	// providers.
 	SupportedProviders = map[provider.Name]struct{}{
-		provider.ProviderBybit:              {},
-		provider.ProviderBitfinex:           {},
-		provider.ProviderBitforex:           {},
-		provider.ProviderBitmart:            {},
-		provider.ProviderBitstamp:           {},
-		provider.ProviderCamelotV2:          {},
-		provider.ProviderCamelotV3:          {},
-		provider.ProviderFin:                {},
-		provider.ProviderFinV2:              {},
-		provider.ProviderPoloniex:           {},
-		provider.ProviderPhemex:             {},
-		provider.ProviderLbank:              {},
-		provider.ProviderHitBtc:             {},
-		provider.ProviderKraken:             {},
-		provider.ProviderKucoin:             {},
-		provider.ProviderBinance:            {},
-		provider.ProviderBinanceUS:          {},
-		provider.ProviderOsmosisV2:          {},
-		provider.ProviderOkx:                {},
-		provider.ProviderHuobi:              {},
-		provider.ProviderGate:               {},
-		provider.ProviderCoinbase:           {},
-		provider.ProviderBitget:             {},
-		provider.ProviderMexc:               {},
-		provider.ProviderCrypto:             {},
-		provider.ProviderCurve:              {},
-		provider.ProviderMock:               {},
-		provider.ProviderStride:             {},
-		provider.ProviderXt:                 {},
-		provider.ProviderIdxOsmosis:         {},
-		provider.ProviderPyth:               {},
-		provider.ProviderZero:               {},
-		provider.ProviderUniswapV3:          {},
+		provider.ProviderAstroportInjective: {},
 		provider.ProviderAstroportNeutron:   {},
 		provider.ProviderAstroportTerra2:    {},
-		provider.ProviderAstroportInjective: {},
+		provider.ProviderBinance:            {},
+		provider.ProviderBinanceUS:          {},
+		provider.ProviderBitfinex:           {},
+		provider.ProviderBitforex:           {},
+		provider.ProviderBitget:             {},
+		provider.ProviderBitmart:            {},
+		provider.ProviderBitstamp:           {},
+		provider.ProviderBybit:              {},
+		provider.ProviderCamelotV2:          {},
+		provider.ProviderCamelotV3:          {},
+		provider.ProviderCoinbase:           {},
+		provider.ProviderCrypto:             {},
+		provider.ProviderCurve:              {},
+		provider.ProviderDexter:             {},
+		provider.ProviderFin:                {},
+		provider.ProviderFinV2:              {},
+		provider.ProviderGate:               {},
+		provider.ProviderHitBtc:             {},
+		provider.ProviderHuobi:              {},
+		provider.ProviderIdxOsmosis:         {},
+		provider.ProviderKraken:             {},
+		provider.ProviderKucoin:             {},
+		provider.ProviderLbank:              {},
+		provider.ProviderMexc:               {},
+		provider.ProviderMock:               {},
+		provider.ProviderOkx:                {},
+		provider.ProviderOsmosisV2:          {},
 		provider.ProviderPancakeV3Bsc:       {},
+		provider.ProviderPhemex:             {},
+		provider.ProviderPoloniex:           {},
+		provider.ProviderPyth:               {},
+		provider.ProviderShade:              {},
+		provider.ProviderStride:             {},
+		provider.ProviderUniswapV3:          {},
+		provider.ProviderUpbit:              {},
 		provider.ProviderWhitewhaleCmdx:     {},
 		provider.ProviderWhitewhaleHuahua:   {},
 		provider.ProviderWhitewhaleInj:      {},
 		provider.ProviderWhitewhaleJuno:     {},
-		provider.ProviderWhitewhaleLunc:     {},
 		provider.ProviderWhitewhaleLuna:     {},
+		provider.ProviderWhitewhaleLunc:     {},
 		provider.ProviderWhitewhaleSei:      {},
 		provider.ProviderWhitewhaleWhale:    {},
+		provider.ProviderXt:                 {},
+		provider.ProviderZero:               {},
 	}
 
 	SupportedDerivatives = map[string]struct{}{
@@ -100,16 +103,9 @@ type (
 		Deviations           []Deviation                   `toml:"deviation_thresholds"`
 		ProviderMinOverrides []ProviderMinOverrides        `toml:"provider_min_overrides"`
 		ProviderWeights      map[string]map[string]float64 `toml:"provider_weight"`
-		Account              Account                       `toml:"account" validate:"required,gt=0,dive,required"`
-		Keyring              Keyring                       `toml:"keyring" validate:"required,gt=0,dive,required"`
-		RPC                  RPC                           `toml:"rpc" validate:"required,gt=0,dive,required"`
 		Telemetry            Telemetry                     `toml:"telemetry"`
-		GasAdjustment        float64                       `toml:"gas_adjustment" validate:"required"`
-		GasPrices            string                        `toml:"gas_prices" validate:"required"`
 		ProviderTimeout      string                        `toml:"provider_timeout"`
 		ProviderEndpoints    []ProviderEndpoints           `toml:"provider_endpoints" validate:"dive"`
-		EnableServer         bool                          `toml:"enable_server"`
-		EnableVoter          bool                          `toml:"enable_voter"`
 		Healthchecks         []Healthchecks                `toml:"healthchecks" validate:"dive"`
 		HeightPollInterval   string                        `toml:"height_poll_interval"`
 		HistoryDb            string                        `toml:"history_db"`
@@ -148,29 +144,6 @@ type (
 	ProviderMinOverrides struct {
 		Denoms    []string `toml:"denoms" validate:"required"`
 		Providers uint     `toml:"providers" validate:"required"`
-	}
-
-	// Account defines account related configuration that is related to the
-	// network and transaction signing functionality.
-	Account struct {
-		ChainID    string `toml:"chain_id" validate:"required"`
-		Address    string `toml:"address" validate:"required"`
-		Validator  string `toml:"validator" validate:"required"`
-		FeeGranter string `toml:"fee_granter"`
-		Prefix     string `toml:"prefix" validate:"required"`
-	}
-
-	// Keyring defines the required keyring configuration.
-	Keyring struct {
-		Backend string `toml:"backend" validate:"required"`
-		Dir     string `toml:"dir" validate:"required"`
-	}
-
-	// RPC defines RPC configuration of both the gRPC and Tendermint nodes.
-	RPC struct {
-		TMRPCEndpoint string `toml:"tmrpc_endpoint" validate:"required"`
-		GRPCEndpoint  string `toml:"grpc_endpoint" validate:"required"`
-		RPCTimeout    string `toml:"rpc_timeout" validate:"required"`
 	}
 
 	// Telemetry defines the configuration options for application telemetry.
