@@ -22,21 +22,6 @@ func TestValidate(t *testing.T) {
 			CurrencyPairs: []config.CurrencyPair{
 				{Base: "ATOM", Quote: "USDT", Providers: []provider.Name{provider.ProviderKraken}},
 			},
-			Account: config.Account{
-				Address:   "fromaddr",
-				Validator: "valaddr",
-				ChainID:   "chain-id",
-				Prefix:    "chain",
-			},
-			Keyring: config.Keyring{
-				Backend: "test",
-				Dir:     "/Users/username/.kujira",
-			},
-			RPC: config.RPC{
-				TMRPCEndpoint: "http://localhost:26657",
-				GRPCEndpoint:  "localhost:9090",
-				RPCTimeout:    "100ms",
-			},
 			Telemetry: config.Telemetry{
 				ServiceName:             "price-feeder",
 				Enabled:                 true,
@@ -46,8 +31,6 @@ func TestValidate(t *testing.T) {
 				GlobalLabels:            make([][]string, 1),
 				PrometheusRetentionTime: 120,
 			},
-			GasAdjustment: 1.5,
-			GasPrices:     "0.00125ukuji",
 			Healthchecks: []config.Healthchecks{
 				{URL: "https://hc-ping.com/HEALTHCHECK-UUID", Timeout: "200ms"},
 			},
@@ -137,14 +120,11 @@ func TestValidate(t *testing.T) {
 }
 
 func TestParseConfig_Valid(t *testing.T) {
-	tmpFile, err := ioutil.TempFile("", "price-feeder.toml")
+	tmpFile, err := os.CreateTemp("", "price-feeder.toml")
 	require.NoError(t, err)
 	defer os.Remove(tmpFile.Name())
 
 	content := []byte(`
-gas_adjustment = 1.5
-gas_prices = "0.00125ukuji"
-
 [server]
 listen_addr = "0.0.0.0:99999"
 read_timeout = "20s"
@@ -185,22 +165,6 @@ providers = ["osmosisv2"]
 derivative = "twap"
 derivative_period = "30m"
 
-[account]
-address = "kujira15nejfgcaanqpw25ru4arvfd0fwy6j8clccvwx4"
-validator = "kujiravalcons14rjlkfzp56733j5l5nfk6fphjxymgf8mj04d5p"
-chain_id = "kujira-local-testnet"
-prefix = "kujira"
-
-[keyring]
-backend = "test"
-dir = "/Users/username/.kujira"
-pass = "keyringPassword"
-
-[rpc]
-tmrpc_endpoint = "http://localhost:26657"
-grpc_endpoint = "localhost:9090"
-rpc_timeout = "100ms"
-
 [telemetry]
 service_name = "price-feeder"
 enabled = true
@@ -239,9 +203,6 @@ func TestParseConfig_Valid_NoTelemetry(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	content := []byte(`
-gas_adjustment = 1.5
-gas_prices = "0.00125ukuji"
-
 [server]
 listen_addr = "0.0.0.0:99999"
 read_timeout = "20s"
@@ -274,22 +235,6 @@ providers = [
 	"binance",
 	"huobi"
 ]
-
-[account]
-address = "kujira15nejfgcaanqpw25ru4arvfd0fwy6j8clccvwx4"
-validator = "kujiravalcons14rjlkfzp56733j5l5nfk6fphjxymgf8mj04d5p"
-chain_id = "kujira-local-testnet"
-prefix = "kujira"
-
-[keyring]
-backend = "test"
-dir = "/Users/username/.kujira"
-pass = "keyringPassword"
-
-[rpc]
-tmrpc_endpoint = "http://localhost:26657"
-grpc_endpoint = "localhost:9090"
-rpc_timeout = "100ms"
 
 [telemetry]
 enabled = false
@@ -381,9 +326,6 @@ func TestParseConfig_Valid_Deviations(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	content := []byte(`
-gas_adjustment = 1.5
-gas_prices = "0.00125ukuji"
-
 [server]
 listen_addr = "0.0.0.0:99999"
 read_timeout = "20s"
@@ -425,22 +367,6 @@ providers = [
 	"huobi"
 ]
 
-[account]
-address = "kujira15nejfgcaanqpw25ru4arvfd0fwy6j8clccvwx4"
-validator = "kujiravalcons14rjlkfzp56733j5l5nfk6fphjxymgf8mj04d5p"
-chain_id = "kujira-local-testnet"
-prefix = "kujira"
-
-[keyring]
-backend = "test"
-dir = "/Users/username/.kujira"
-pass = "keyringPassword"
-
-[rpc]
-tmrpc_endpoint = "http://localhost:26657"
-grpc_endpoint = "localhost:9090"
-rpc_timeout = "100ms"
-
 [telemetry]
 service_name = "price-feeder"
 enabled = true
@@ -478,8 +404,6 @@ func TestParseConfig_Invalid_Deviations(t *testing.T) {
 	defer os.Remove(tmpFile.Name())
 
 	content := []byte(`
-gas_adjustment = 1.5
-
 [server]
 listen_addr = "0.0.0.0:99999"
 read_timeout = "20s"
@@ -520,21 +444,6 @@ providers = [
 	"binance",
 	"huobi"
 ]
-
-[account]
-address = "umee15nejfgcaanqpw25ru4arvfd0fwy6j8clccvwx4"
-validator = "umeevalcons14rjlkfzp56733j5l5nfk6fphjxymgf8mj04d5p"
-chain_id = "umee-local-testnet"
-
-[keyring]
-backend = "test"
-dir = "/Users/username/.umee"
-pass = "keyringPassword"
-
-[rpc]
-tmrpc_endpoint = "http://localhost:26657"
-grpc_endpoint = "localhost:9090"
-rpc_timeout = "100ms"
 
 [telemetry]
 service_name = "price-feeder"
